@@ -1,0 +1,101 @@
+   project documentation- deploy application on eks using fargate
+   --------------------------------------------------------------
+   install kubectl on linux machine:
+   ---------------------------------
+   sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+   kubectl
+   
+   install eksctl on linux machine:
+   --------------------------------
+    curl --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+    sudo mv /tmp/eksctl /usr/local/bin
+    eksctl version
+   
+   install awscli on linux machine:
+   --------------------------------
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    unzip awscliv2.zip
+    awscli version
+	
+   configure aws on linux machine:
+   --------------------------------
+     aws configure
+	 > provide required credentials
+	  -access id {generate access id and password 
+				  from aws credentials manager 
+				  console under access tab}
+	  -password
+	  -region
+	  -format
+	  etc
+	  
+   create eks fargate cluster on linux machine :
+   ---------------------------------------------
+    eksctl create cluster --name demo-cluster --region us-east-1 --fargate
+   
+   update eks kubeconfig file:
+   ---------------------------
+   aws eks update-kubeconfig --name demo-cluster --region us-east-1
+   
+   create fargate profile and a different namespace {could be done in default namespaces also}:
+   --------------------------------------------------------------------------------------------
+   eksctl create fargateprofile --cluster demo-cluster --region us-east-1 --name alb-sample-app --namespace game-2048
+   
+   apply the manifest file:
+   ------------------------
+   kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/examples/2048/2048_full.yaml
+   
+   view the k8s objects getting created:
+   -------------------------------------
+   kubectl get pods -n game-2048 -w
+   
+   create a iam oidc provider:
+   ---------------------------
+   eksctl utils associate-iam-oidc-provider --cluster demo-cluster --approve
+   
+   attach iam policy to the oidc-provider:
+   ---------------------------------------
+   aws iam create-policy --policy-name AWSLoadBalancerControllerIAMPolicy --policy-document file://iam_policy.json
+   
+   create a serviceaccount for service:
+   -------------------------------------
+   eksctl create iamserviceaccount   --cluster=demo-cluster   --namespace=game-2048   --name=aws-load-balancer-controller   --role-name AmazonEKSLoadBalancerControllerRole   --attach-policy-arn=arn:aws:iam::905418404586:policy/AWSLoadBalancerControllerIAMPolicy --approve
+   
+   install the alb ingress controller:
+   -----------------------------------
+   helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n game-2048  --set clusterName=demo-cluster --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller --set region=us-east-1  --set vpcId=vpc-0142f3c44974b026f 
+   {note: replace the vpc id, ingress controller name,
+   namespace, clustername, serviceAccount name,
+   and region of the current fargate cluster}
+   
+   i got this error while installing alb ingress controller:
+   --------------------------------------------------------
+   message: 'pods "aws-load-balancer-controller-658fc9d5db-" is forbidden: error
+looking up service account kube-system/aws-load-balancer-controller: serviceaccount
+"aws-load-balancer-controller" not found'
+reason: Failed Create
+status: "True"
+type: Replica Failure
+
+{this error was comming because there was some issue in creating serviceaccount as seen in logs
+to resolve this issue i had to delete the cloudformation stack which wasa created for service accounts 
+and again created the serviceaccount with the same command used above , the problem was i didnt added approve flag
+so the service account was not created. this time i gave the approve flag and the service account was created sucessfully then again i installed the 
+ingress controller using above command . now it was sucessfully working and the service was provided with the external ip and i could access the webapp from the internet through the ip provided.  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   
